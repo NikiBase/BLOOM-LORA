@@ -1,18 +1,15 @@
 import os
+from functools import lru_cache
 
 import torch
-import torch.nn as nn
-import bitsandbytes as bnb
 from datasets import load_dataset
 import transformers
 
 assert (
     "LlamaTokenizer" in transformers._import_structure["models.llama"]
 ), "LLaMA is now in HuggingFace's main branch.\nPlease reinstall it: pip uninstall transformers && pip install git+https://github.com/huggingface/transformers.git"
-from transformers import LlamaForCausalLM, LlamaTokenizer
-from transformers import pipeline, AutoModelForCausalLM, AutoTokenizer, BloomForCausalLM
-from transformers.models.opt.modeling_opt import OPTDecoderLayer
-
+from transformers import AutoTokenizer, BloomForCausalLM
+import json
 from peft import (
     prepare_model_for_int8_training,
     LoraConfig,
@@ -21,186 +18,146 @@ from peft import (
 )
 
 
-# optimized for RTX 3090 and A100. for larger GPUs, increase some of these?
-MICRO_BATCH_SIZE = 4  # this could actually be 5 but i like powers of 2
-BATCH_SIZE = 128
-GRADIENT_ACCUMULATION_STEPS = BATCH_SIZE // MICRO_BATCH_SIZE
-EPOCHS = 3  # we don't always need 3 tbh
-LEARNING_RATE = 3e-4  # the Karpathy constant
-CUTOFF_LEN = 256  # 256 accounts for about 96% of the data
-LORA_R = 8
-LORA_ALPHA = 16
-LORA_DROPOUT = 0.05
-VAL_SET_SIZE = 2000
-TARGET_MODULES = [
-    "q_proj",
-    "v_proj",
-]
-DATA_PATH = "alpaca_data_cleaned.json"
-
-model_name = "bigscience/bloom-560m"
-#model_name = "bigscience/bloom-1b1"
-#model_name = "bigscience/bloom-1b7"
-#model_name = "bigscience/bloom-3b"
-#model_name = "bigscience/bloom-7b1"
-#model_name = "bigscience/bloom" # for 176B parameters
-
-model = BloomForCausalLM.from_pretrained( 
-    model_name,
-    device_map='auto',
-    load_in_8bit=True,
-)
-tokenizer = AutoTokenizer.from_pretrained('bigscience/bloom')
-
-model = prepare_model_for_int8_training(model)
-
-config = LoraConfig(
-    r=LORA_R,
-    lora_alpha=LORA_ALPHA,
-    target_modules=TARGET_MODULES,
-    lora_dropout=LORA_DROPOUT,
-    bias="none",
-    task_type="CAUSAL_LM",
-)
-model = get_peft_model(model, config)
-tokenizer.pad_token_id = 0  # unk. we want this to be different from the eos token
-data = load_dataset("json", data_files=DATA_PATH)
-
-train_val = data["train"].train_test_split(
-    test_size=VAL_SET_SIZE, shuffle=True, seed=42
-)
-train_data = train_val["train"]
-val_data = train_val["test"]
+@lru_cache
+def get_config(file: str = "train_config.json"):
+    with open(file, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    data["gradient_accumulation_steps"] = data["batch_size"] // data["micro_batch_size"]
+    return data
 
 
-def generate_prompt(data_point):
-    # sorry about the formatting disaster gotta move fast
-    if data_point["input"]:
-        return f"""Below is an instruction that describes a task, paired with an input that provides further context. Write a response that appropriately completes the request.
-
-### Instruction:
-{data_point["instruction"]}
-
-### Input:
-{data_point["input"]}
-
-### Response:
-{data_point["output"]}"""
-    else:
-        return f"""Below is an instruction that describes a task. Write a response that appropriately completes the request.
-
-### Instruction:
-{data_point["instruction"]}
-
-### Response:
-{data_point["output"]}"""
-
-
-def tokenize(prompt):
-    # there's probably a way to do this with the tokenizer settings
-    # but again, gotta move fast
-    result = tokenizer(
-        prompt,
-        truncation=True,
-        max_length=CUTOFF_LEN + 1,
-        padding="max_length",
-    )
-    return {
-        "input_ids": result["input_ids"][:-1],
-        "attention_mask": result["attention_mask"][:-1],
-    }
-
-
-def generate_and_tokenize_prompt(data_point):
-    # This function masks out the labels for the input,
-    # so that our loss is computed only on the response.
-    user_prompt = (
-        (
-            f"""Below is an instruction that describes a task, paired with an input that provides further context. Write a response that appropriately completes the request.
-
-### Instruction:
-{data_point["instruction"]}
-
-### Input:
-{data_point["input"]}
-
-### Response:
 """
-        )
-        if data_point["input"]
-        else (
-            f"""Below is an instruction that describes a task. Write a response that appropriately completes the request.
-
-### Instruction:
-{data_point["instruction"]}
-
-### Response:
+The folling models are available for fine-tunning:
+    "bigscience/bloom-560m"
+    "bigscience/bloom-1b1"
+    "bigscience/bloom-1b7"
+    "bigscience/bloom-3b"
+    "bigscience/bloom-7b1"
+    "bigscience/bloom" # for 176B parameters
 """
-        )
+
+
+def train():
+    # Load training parameters
+    data = get_config()
+    model_name = data["model_name"]
+    lora_r = data["lora_r"]
+    lora_alpha = data["lora_alpha"]
+    lora_dropout = data["lora_dropout"]
+    data_path = data["data_path"]
+    val_set_size = data["val_set_size"]
+    cutoff_len = data["cutoff_len"]
+    micro_batch_size = data["micro_batch_size"]
+    gradient_accumulation_steps = data["gradient_accumulation_steps"]
+    epochs = data["epochs"]
+    lr = data["lr"]
+    output_dir = data["output_dir"]
+    ddp = data["ddp"]
+    resume_from_checkpoint = data["resume_from_checkpoint"]
+
+    model = BloomForCausalLM.from_pretrained(
+        model_name,
+        device_map="auto",
+        load_in_8bit=False,
     )
-    len_user_prompt_tokens = (
-        len(
-            tokenizer(
-                user_prompt,
-                truncation=True,
-                max_length=CUTOFF_LEN + 1,
-                padding="max_length",
-            )["input_ids"]
+    tokenizer = AutoTokenizer.from_pretrained("bigscience/bloom")
+
+    model = prepare_model_for_int8_training(model)
+
+    config = LoraConfig(
+        r=lora_r,
+        lora_alpha=lora_alpha,
+        target_modules=None,
+        lora_dropout=lora_dropout,
+        bias="none",
+        task_type="CAUSAL_LM",
+    )
+    model = get_peft_model(model, config)
+    tokenizer.pad_token_id = 0  # unk. we want this to be different from the eos token
+    data = load_dataset("json", data_files=data_path)
+
+    train_val = data["train"].train_test_split(
+        test_size=val_set_size, shuffle=True, seed=42
+    )
+    train_data = train_val["train"]
+    val_data = train_val["test"]
+
+    def generate_and_tokenize_prompt(data_point):
+        # This function masks out the labels for the input,
+        # so that our loss is computed only on the response.
+        user_prompt = (
+            (
+                f"""### Instruction: {data_point["instruction"]}\n\n### Input: {data_point["input"]}\n\n### Response: """
+            )
+            if data_point["input"]
+            else (f"""### Instruction: {data_point["instruction"]}\n\n### Response: """)
         )
-        - 1
-    )  # no eos token
-    full_tokens = tokenizer(
-        user_prompt + data_point["output"],
-        truncation=True,
-        max_length=CUTOFF_LEN + 1,
-        padding="max_length",
-    )["input_ids"][:-1]
-    return {
-        "input_ids": full_tokens,
-        "labels": [-100] * len_user_prompt_tokens
-        + full_tokens[len_user_prompt_tokens:],
-        "attention_mask": [1] * (len(full_tokens)),
-    }
+        len_user_prompt_tokens = (
+            len(
+                tokenizer(
+                    user_prompt,
+                    truncation=True,
+                    max_length=cutoff_len + 1,
+                    padding="max_length",
+                )["input_ids"]
+            )
+            - 1
+        )  # no eos token
+        full_tokens = tokenizer(
+            user_prompt + data_point["output"],
+            truncation=True,
+            max_length=cutoff_len + 1,
+            padding="max_length",
+        )["input_ids"][:-1]
+        return {
+            "input_ids": full_tokens,
+            "labels": [-100] * len_user_prompt_tokens
+            + full_tokens[len_user_prompt_tokens:],
+            "attention_mask": [1] * (len(full_tokens)),
+        }
 
+    train_data = train_data.shuffle().map(generate_and_tokenize_prompt)
+    val_data = val_data.shuffle().map(generate_and_tokenize_prompt)
 
-train_data = train_data.shuffle().map(generate_and_tokenize_prompt)
-val_data = val_data.shuffle().map(generate_and_tokenize_prompt)
+    trainer = transformers.Trainer(
+        model=model,
+        train_dataset=train_data,
+        eval_dataset=val_data,
+        args=transformers.TrainingArguments(
+            per_device_train_batch_size=micro_batch_size,
+            gradient_accumulation_steps=gradient_accumulation_steps,
+            warmup_steps=100,
+            num_train_epochs=epochs,
+            learning_rate=lr,
+            fp16=True,
+            logging_steps=20,
+            evaluation_strategy="steps",
+            save_strategy="steps",
+            eval_steps=200,
+            save_steps=200,
+            output_dir=output_dir,
+            save_total_limit=3,
+            load_best_model_at_end=True,
+            ddp_find_unused_parameters=False if ddp else None,
+        ),
+        data_collator=transformers.DataCollatorForLanguageModeling(
+            tokenizer, mlm=False
+        ),
+    )
+    model.config.use_cache = False
 
-trainer = transformers.Trainer(
-    model=model,
-    train_dataset=train_data,
-    eval_dataset=val_data,
-    args=transformers.TrainingArguments(
-        per_device_train_batch_size=MICRO_BATCH_SIZE,
-        gradient_accumulation_steps=GRADIENT_ACCUMULATION_STEPS,
-        warmup_steps=100,
-        num_train_epochs=EPOCHS,
-        learning_rate=LEARNING_RATE,
-        fp16=True,
-        logging_steps=20,
-        evaluation_strategy="steps",
-        save_strategy="steps",
-        eval_steps=200,
-        save_steps=200,
-        output_dir="BLOOM-alpaca",
-        save_total_limit=3,
-        load_best_model_at_end=True,
-        ddp_find_unused_parameters=False if ddp else None,
-    ),
-    data_collator=transformers.DataCollatorForLanguageModeling(tokenizer, mlm=False),
-)
-model.config.use_cache = False
+    old_state_dict = model.state_dict
+    model.state_dict = (
+        lambda self, *_, **__: get_peft_model_state_dict(self, old_state_dict())
+    ).__get__(model, type(model))
 
-old_state_dict = model.state_dict
-model.state_dict = (
-    lambda self, *_, **__: get_peft_model_state_dict(self, old_state_dict())
-).__get__(model, type(model))
+    if torch.__version__ >= "2":
+        model = torch.compile(model)
 
-if torch.__version__ >= "2":
-    model = torch.compile(model)
+    trainer.train(
+        resume_from_checkpoint=resume_from_checkpoint
+    )  # if resume, choose True, else False
 
-trainer.train(resume_from_checkpoint = True) #if resume, choose True, else False
+    model.save_pretrained(output_dir)
 
-model.save_pretrained("BLOOM-alpaca")
-
-print("\n If there's a warning about missing keys above, please disregard :)")
+    print("\n If there's a warning about missing keys above, please disregard :)")
