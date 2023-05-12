@@ -161,3 +161,7 @@ def train():
     model.save_pretrained(output_dir)
 
     print("\n If there's a warning about missing keys above, please disregard :)")
+
+
+if __name__ == "__main__":
+    train()
