@@ -30,8 +30,8 @@ def evaluation(source_file, reference_file, src_lang, tgt_lang):
 
 if __name__ == "__main__":
     evaluation(
-        source_file="data/official_test.es",
-        reference_file="data/official_test.en",
-        src_lang="Spanish",
-        tgt_lang="English",
+        source_file="data/official_test.en",
+        reference_file="data/official_test.es",
+        src_lang="English",
+        tgt_lang="Spanish",
     )
