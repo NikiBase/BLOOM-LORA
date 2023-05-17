@@ -15,12 +15,12 @@ def evaluation(source_file, reference_file, src_lang, tgt_lang):
     )
 
     for src in sources:
-        prompt = (
-            f"Translate the following {src_lang} text, which is delimited by triple backticks, to {tgt_lang}.\n"
-            f"Return just the translation\n"
-            f"```{src.strip()}```"
-        )
-        print(prompt)
+        # prompt = (
+        #     f"Translate the following {src_lang} text, which is delimited by triple backticks, to {tgt_lang}.\n"
+        #     f"Return just the translation\n"
+        #     f"```{src.strip()}```"
+        # )
+        prompt = f"Translate to {tgt_lang}: {src}"
         inputs = tokenizer.encode(prompt, return_tensors="pt").to("cuda")
         outputs = model.generate(inputs)
         print(tokenizer.decode(outputs[0]))
