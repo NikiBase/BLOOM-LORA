@@ -23,7 +23,8 @@ def evaluation(source_file, reference_file, src_lang, tgt_lang):
         prompt = f"Translate to {tgt_lang}: {src}"
         inputs = tokenizer.encode(prompt, return_tensors="pt").to("cuda")
         outputs = model.generate(inputs)
-        print(tokenizer.decode(outputs[0]))
+        print(outputs)
+        # print(tokenizer.decode(outputs[0]))
         exit()
 
 
