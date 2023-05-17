@@ -20,7 +20,7 @@ def evaluation(source_file, src_lang, tgt_lang):
             # )
             prompt = f"Translate to {tgt_lang}: {src}"
             inputs = tokenizer.encode(prompt, return_tensors="pt").to("cuda")
-            outputs = model.generate(inputs)
+            outputs = model.generate(inputs, max_new_tokens=1024)
             # sacrebleu ~/martin/europeana_old/iten/Translations/X_test_eng.txt -i translation_hyp.txt -l it-en -m bleu chrf ter
             f.write(f"{str(tokenizer.decode(outputs[0])).strip()}\n")
 
