@@ -1,9 +1,13 @@
 import os
+import time
 from functools import lru_cache
 
 import torch
 from datasets import load_dataset
 import transformers
+
+from utils.s3 import zip_n_store
+
 
 assert (
     "LlamaTokenizer" in transformers._import_structure["models.llama"]
@@ -16,6 +20,8 @@ from peft import (
     get_peft_model,
     get_peft_model_state_dict,
 )
+
+from generate_bloom import generate
 
 
 @lru_cache
@@ -54,6 +60,7 @@ def train():
     output_dir = data["output_dir"]
     ddp = data["ddp"]
     resume_from_checkpoint = data["resume_from_checkpoint"]
+    s3_bucket = data["s3_bucket"]
 
     model = BloomForCausalLM.from_pretrained(
         model_name,
@@ -153,14 +160,18 @@ def train():
 
     if torch.__version__ >= "2":
         model = torch.compile(model)
-
+    start_train = time.time()
     trainer.train(
         resume_from_checkpoint=resume_from_checkpoint
     )  # if resume, choose True, else False
-
+    end_train = time.time() - start_train
+    with open(
+        os.path.join(output_dir, f"train_timing_{output_dir}.txt"), "w", encoding="utf8"
+    ) as f:
+        f.write(f"Time to train: {end_train}")
     model.save_pretrained(output_dir)
 
-    print("\n If there's a warning about missing keys above, please disregard :)")
+    # zip_n_store(output_dir, s3_bucket, output_dir + ".zip")
 
 
 if __name__ == "__main__":
