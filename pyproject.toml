@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "BLOOM LORA fine tunning"
-description = "Fine tunning BLOOM using LORA (Low-rank Adaptation of Large Language Models)"
+description = "Fine tunning BLOOM using LORA (Low rank Adaptation of Large Language Models)"
 version = "0.1.0"
 authors = [
     { name = "Nikita Teslenko Grygoryev", email = "nikgrygoryev@gmail.com" },
