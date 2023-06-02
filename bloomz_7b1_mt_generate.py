@@ -13,15 +13,9 @@ def evaluation(source_file, src_lang, tgt_lang):
     )
     with open(f"translation_{src_lang}_{tgt_lang}_hyp.txt", "w", encoding="utf8") as f:
         for src in sources:
-            # prompt = (
-            #     f"Translate the following {src_lang} text, which is delimited by triple backticks, to {tgt_lang}.\n"
-            #     f"Return just the translation\n"
-            #     f"```{src.strip()}```"
-            # )
             prompt = f"Translate to {tgt_lang}: {src}"
             inputs = tokenizer.encode(prompt, return_tensors="pt").to("cuda")
             outputs = model.generate(inputs, max_new_tokens=1024)
-            # sacrebleu ~/martin/europeana_old/iten/Translations/X_test_eng.txt -i translation_hyp.txt -l it-en -m bleu chrf ter
             f.write(f"{str(tokenizer.decode(outputs[0])).strip()}\n")
 
 
