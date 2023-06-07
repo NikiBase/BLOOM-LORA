@@ -1,0 +1,17 @@
+{
+    "model_name": "bigscience/bloom-560m",
+    "data_path": "data/train_tilde.json",
+    "micro_batch_size": 8,
+    "batch_size": 1024,
+    "epochs": 5,
+    "lr": 3e-4,
+    "cutoff_len": 256,
+    "lora_r": 8,
+    "lora_alpha": 16,
+    "lora_dropout": 0.05,
+    "val_set_size": 2000,
+    "output_dir": "BLOOM-LORA-7b1-en_es_translation",
+    "resume_from_checkpoint": false,
+    "ddp": false,
+    "s3_bucket": "s3://com.pangeanic.backup-nas/H100test/inno/"
+}
