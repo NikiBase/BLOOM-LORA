@@ -7,3 +7,4 @@ bitsandbytes==0.38.1
 git+https://github.com/huggingface/peft.git
 gradio==3.28.3
 appdirs==1.4.4
+boto3

@@ -1,6 +1,6 @@
 {
-    "model_name": "bigscience/bloom-7b1",
-    "data_path": "data/train_tilde.json",
+    "model_name": "bigscience/bloom-560m",
+    "data_path": "",
     "micro_batch_size": 8,
     "batch_size": 1024,
     "epochs": 5,
@@ -13,5 +13,5 @@
     "output_dir": "BLOOM-LORA-7b1-en_es_translation",
     "resume_from_checkpoint": false,
     "ddp": false,
-    "s3_bucket": "s3://com.pangeanic.backup-nas/H100test/inno/"
+    "s3_bucket": ""
 }
