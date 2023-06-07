@@ -1,0 +1,13 @@
+{
+    "model_path": "",
+    "lora_weights": "",
+    "load_in_8bit": false,
+    "temperature": 0.1,
+    "top_p": 0.75,
+    "top_k": 40,
+    "num_beams": 4,
+    "max_new_tokens": 128,
+    "device": "auto",
+    "test_path": ""
+
+}
